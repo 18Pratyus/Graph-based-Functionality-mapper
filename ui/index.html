@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flow Mapper — Live BFS Explorer</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0e17;color:#c9d1d9;overflow:hidden;height:100vh}
+.header{display:flex;align-items:center;justify-content:space-between;padding:12px 24px;background:#161b22;border-bottom:1px solid #30363d;height:56px}
+.header h1{font-size:18px;font-weight:600;color:#58a6ff}
+.header h1 span{color:#8b949e;font-weight:400}
+.stats{display:flex;gap:20px;font-size:13px}
+.stat{display:flex;align-items:center;gap:6px}
+.sv{font-weight:700;color:#58a6ff;font-variant-numeric:tabular-nums}
+.sl{color:#8b949e}
+.dot{width:8px;height:8px;border-radius:50%;background:#f85149;transition:background .3s}
+.dot.on{background:#3fb950;box-shadow:0 0 6px #3fb95088}
+.main{display:flex;height:calc(100vh - 56px)}
+.graph{flex:1;position:relative;overflow:hidden}
+svg{width:100%;height:100%}
+.sidebar{width:300px;background:#161b22;border-left:1px solid #30363d;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.sidebar h3{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#8b949e;margin-bottom:4px}
+.card{background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:12px;font-size:12px;line-height:1.5}
+.card .url{color:#58a6ff;word-break:break-all;font-size:11px}
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10px;font-weight:600;margin-top:4px}
+.log-entry{font-size:11px;font-family:monospace;padding:3px 0;border-bottom:1px solid #21262d;color:#8b949e}
+.log-entry .t{color:#6e7681;margin-right:6px}
+.log-entry.add{color:#3fb950}
+.log-entry.upd{color:#d29922}
+.log-entry.err{color:#f85149}
+.node-circle{cursor:pointer}
+.edge-line{stroke:#30363d;stroke-width:1.5;fill:none}
+.edge-line.func{stroke:#d29922;stroke-dasharray:5 3}
+.node-label{font-size:10px;fill:#c9d1d9;pointer-events:none;font-family:monospace}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Flow Mapper <span>— Live BFS Explorer</span></h1>
+  <div class="stats">
+    <div class="stat"><div class="dot" id="dot"></div><span class="sl" id="connlbl">Disconnected</span></div>
+    <div class="stat"><span class="sv" id="nc">0</span><span class="sl">nodes</span></div>
+    <div class="stat"><span class="sv" id="ec">0</span><span class="sl">edges</span></div>
+    <div class="stat"><span class="sv" id="xc">0</span><span class="sl">explored</span></div>
+  </div>
+</div>
+<div class="main">
+  <div class="graph"><svg id="svg"></svg></div>
+  <div class="sidebar">
+    <div>
+      <h3>Selected Node</h3>
+      <div id="detail"><div class="card" style="color:#6e7681">Click a node to see details</div></div>
+    </div>
+    <div>
+      <h3>Activity Log</h3>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script>
+const nodes=new Map(), edges=[], typeColors={
+  login:'#f85149',dashboard:'#58a6ff',listing:'#3fb950',detail:'#d29922',
+  form:'#bc8cff',search:'#79c0ff',settings:'#8b949e',checkout:'#f0883e',other:'#6e7681'};
+let sim,svg,g,lG,nG,ws,xc=0;
+
+function initGraph(){
+  const w=document.getElementById('svg').clientWidth||800;
+  const h=document.getElementById('svg').clientHeight||600;
+  svg=d3.select('#svg');
+  svg.call(d3.zoom().scaleExtent([.1,4]).on('zoom',e=>g.attr('transform',e.transform)));
+  g=svg.append('g');
+  lG=g.append('g');
+  nG=g.append('g');
+  sim=d3.forceSimulation()
+    .force('link',d3.forceLink().id(d=>d.id).distance(120))
+    .force('charge',d3.forceManyBody().strength(-280))
+    .force('center',d3.forceCenter(w/2,h/2))
+    .force('col',d3.forceCollide(38))
+    .on('tick',tick);
+}
+
+function tick(){
+  lG.selectAll('.edge-line')
+    .attr('x1',d=>(gn(d.source)||{}).x||0).attr('y1',d=>(gn(d.source)||{}).y||0)
+    .attr('x2',d=>(gn(d.target)||{}).x||0).attr('y2',d=>(gn(d.target)||{}).y||0);
+  nG.selectAll('.ng').attr('transform',d=>`translate(${d.x||0},${d.y||0})`);
+}
+function gn(ref){return typeof ref==='string'?nodes.get(ref):ref}
+
+function update(){
+  const na=Array.from(nodes.values());
+  const ls=lG.selectAll('.edge-line').data(edges,d=>`${d.source}${d.target}${d.action}`);
+  ls.enter().append('line').attr('class',d=>`edge-line${d.type==='functionality'?' func':''}`)
+    .merge(ls); ls.exit().remove();
+  const ns=nG.selectAll('.ng').data(na,d=>d.id);
+  const en=ns.enter().append('g').attr('class','ng')
+    .call(d3.drag().on('start',(_,d)=>{if(!d3.event?.active)sim.alphaTarget(.3).restart();d.fx=d.x;d.fy=d.y})
+      .on('drag',(_,d)=>{d.fx=d3?.event?.x||_.x;d.fy=d3?.event?.y||_.y})
+      .on('end',(_,d)=>{if(!d3.event?.active)sim.alphaTarget(0);d.fx=null;d.fy=null}))
+    .on('click',(_,d)=>detail(d));
+  en.append('circle').attr('class','node-circle').attr('r',d=>8+(d.num_links||0)*.5+(d.num_funcs||0))
+    .attr('stroke','#0a0e17').attr('stroke-width',2);
+  en.append('text').attr('class','node-label').attr('dy',-13).attr('text-anchor','middle').text(d=>d.id);
+  nG.selectAll('.ng circle')
+    .attr('fill',d=>d.status==='exploring'?'#d29922':(typeColors[d.type]||typeColors.other))
+    .style('animation',d=>d.status==='exploring'?'pulse 1s infinite':'none');
+  ns.exit().remove();
+  sim.nodes(na);
+  sim.force('link').links(edges.map(e=>({source:e.source,target:e.target}))
+    .filter(e=>nodes.has(typeof e.source==='string'?e.source:e.source?.id)&&nodes.has(typeof e.target==='string'?e.target:e.target?.id)));
+  sim.alpha(.3).restart();
+  document.getElementById('nc').textContent=nodes.size;
+  document.getElementById('ec').textContent=edges.length;
+  document.getElementById('xc').textContent=xc;
+}
+
+function detail(d){
+  document.getElementById('detail').innerHTML=`
+  <div class="card">
+    <strong>${d.id}</strong>
+    <div class="url">${d.url}</div>
+    <span class="badge" style="background:${(typeColors[d.type]||'#6e7681')}33;color:${typeColors[d.type]||'#6e7681'}">${d.type||'?'}</span>
+    <div style="margin-top:8px">
+      <strong>Title:</strong> ${d.title||'N/A'}<br>
+      <strong>Status:</strong> ${d.status}<br>
+      <strong>Depth:</strong> ${d.depth}<br>
+      <strong>Links:</strong> ${d.num_links||0} &nbsp; <strong>Funcs:</strong> ${d.num_funcs||0}
+    </div>
+  </div>`;}
+
+function log(msg,cls=''){
+  const el=document.getElementById('log');
+  const d=document.createElement('div');
+  const now=new Date().toLocaleTimeString();
+  d.className=`log-entry ${cls}`;
+  d.innerHTML=`<span class="t">${now}</span>${msg}`;
+  el.insertBefore(d,el.firstChild);
+  if(el.children.length>80)el.removeChild(el.lastChild);
+}
+
+function connect(){
+  const host=window.location.hostname||'localhost';
+  ws=new WebSocket(`ws://${host}:8765`);
+  ws.onopen=()=>{document.getElementById('dot').classList.add('on');document.getElementById('connlbl').textContent='Connected';log('Connected','add')};
+  ws.onclose=()=>{document.getElementById('dot').classList.remove('on');document.getElementById('connlbl').textContent='Disconnected';log('Disconnected','err');setTimeout(connect,3000)};
+  ws.onmessage=e=>{
+    const data=JSON.parse(e.data);
+    if(data.event==='full_tree'){
+      (data.nodes||[]).forEach(n=>nodes.set(n.id,n));
+      (data.edges||[]).forEach(e=>edges.push(e));
+      xc=Array.from(nodes.values()).filter(n=>n.status==='done').length;
+      log(`Synced: ${nodes.size} nodes`);update();
+    } else if(data.event==='node_added'){
+      if(data.node)nodes.set(data.node.id,data.node);
+      if(data.edge?.source&&data.edge?.target)edges.push(data.edge);
+      log(`+ ${data.node?.id} ${data.node?.url?.split('/').pop()}||''}`, 'add');
+      update();
+    } else if(data.event==='node_updated'){
+      if(data.node){const ex=nodes.get(data.node.id)||{};nodes.set(data.node.id,{...ex,...data.node});if(data.node.status==='done')xc++;}
+      log(`~ ${data.node?.id} → ${data.node?.status}`,'upd');update();
+    } else if(data.event==='edge_added'){
+      if(data.edge)edges.push(data.edge);update();
+    }
+  };
+}
+
+initGraph();connect();
+</script>
+</body>
+</html>
