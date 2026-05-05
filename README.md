@@ -168,19 +168,7 @@ flow_mapper/
 
 ---
 
-## Special Things Worth Mentioning
 
-**DOM hash deduplication** — before adding any discovered URL to the BFS queue, Flow Mapper hashes the DOM content. if same DOM hash seen before, skip it. this avoids crawling hundreds of paginated pages that are structurally identical.
-
-**3-layer click strategy** — links in SPAs break index-based clicking when the Vue/React component re-renders. Flow Mapper builds a fingerprint for each nav element (id, href, aria-label, css class tokens) and can locate the same element in a fresh DOM even after full re-render.
-
-**Inline session recovery** — if session expires mid-crawl, the next navigation redirect to login is detected automatically. Flow Mapper re-logins using stored credentials and continues from where it left off — no user intervention needed.
-
-**Dangerous element detection** — LLM is instructed to flag elements like logout buttons, delete actions, social media links that would take the browser off-site. these get skipped in click exploration but are still reported in the output.
-
-**Dual model setup** — main model handles JSON reasoning (page type, nav elements, functionalities). vision model analyzes screenshots when input fields are present, which catches dynamically rendered login pages that DOM text alone might misclassify.
-
----
 
 ## Use Cases in Pentesting
 
@@ -195,4 +183,4 @@ flow_mapper/
 
 ## Author
 
-Built as part of the PTaaS (Penetration Testing as a Service) Platform — an end-to-end agentic AI security testing system. Flow Mapper is the reconnaissance and mapping engine that feeds downstream attack simulation and vulnerability analysis agents.
+Built by Pratyus Mansingh. An end-to-end agentic AI security testing system. Flow Mapper is the reconnaissance and mapping engine that feeds downstream attack simulation and vulnerability analysis agents.
