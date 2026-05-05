@@ -28,6 +28,9 @@ Most web crawlers are dumb. They follow links, collect URLs, and stop there. Flo
 | BFS depth + node limits | **YES** | YES | YES | YES |
 
 ---
+## Demo sample
+### In each node, you can see what is the current URL and how many links it contains and it's current status and how it is connected to other urls ?
+![description](flow_mapper.png)
 
 ## How it Works
 
